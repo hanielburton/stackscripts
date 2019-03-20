@@ -3,7 +3,7 @@
 # CONFIGURABLE
 ## Versions
 APEX_VERSION=18.2
-ORDS_VERSION=18.3
+ORDS_VERSION=18.4
 ## Download sources
 ORACLE_PREINSTALL_RPM_URL=https://yum.oracle.com/repo/OracleLinux/OL7/latest/x86_64/getPackage/oracle-database-preinstall-18c-1.0-1.el7.x86_64.rpm
 # CONFIGURABLE END
@@ -54,7 +54,7 @@ esac;
 
 case ORDS_VERSION in
 *)
-  ORDS_ZIP=ords-18.3.0.270.1456.zip
+  ORDS_ZIP=ords-18.4.0.354.1002.zip
   ;;
 esac;
 
@@ -83,7 +83,7 @@ do
   eval SOURCE=\$${file}_URL;
   eval TARGET=\$$file;
   echo Downloading $TARGET from $SOURCE;
-  curl --progress-bar -L -o $TARGET $SOURCE;
+  curl -k --progress-bar -L -o $TARGET $SOURCE;
 done;
 
 echo "Install Oracle XE binaries"
@@ -96,20 +96,15 @@ echo "Prepare database configuration"
 cat << EOF > /etc/sysconfig/oracle-xe-18c.conf
 #This is a configuration file to setup the Oracle Database. 
 #It is used when running '/etc/init.d/oracle-xe-18c configure'.
-
 # LISTENER PORT used Database listener, Leave empty for automatic port assignment
 LISTENER_PORT=${LISTENER_PORT:-1521}
-
 # EM_EXPRESS_PORT Oracle EM Express URL port
 EM_EXPRESS_PORT=${EM_PORT:-5500}
-
 # Character set of the database
 CHARSET=${ORACLE_CHARSET:-AL32UTF8}
-
 # Database file directory
 # If not specified, database files are stored under Oracle base/oradata
 DBFILE_DEST=
-
 # SKIP Validations, memory, space
 SKIP_VALIDATIONS=false
 EOF
@@ -124,29 +119,20 @@ sed -i 's/'$(hostname)'/0.0.0.0/g' $ORACLE_HOME/network/admin/tnsnames.ora
 echo "Create installApex.sh script"
 cat > ${APEX_INSTALL} <<EOF0
 #!/bin/bash
-
 APEX_ZIP=$APEX_ZIP
 ORAENV_ASK=$ORAENV_ASK
 ORACLE_SID=$ORACLE_SID
-
 . oraenv 
-
 unzip ${DOWNLOADS_DIR}/${APEX_ZIP} -d ${ORACLE_BASE}/product/ 
-
 cd ${APEX_HOME}
-
 sqlplus / as sysdba << EOF
   alter session set container = ${ORACLE_PDB_NAME:-XEPDB1};
-
   -- Install APEX
   @apexins.sql SYSAUX SYSAUX TEMP /i/
-
   -- APEX REST configuration
   @apex_rest_config_core.sql $APEX_REST_CONFIG_PREFIX "${APEX_LISTENER_PASSWORD:-$ORACLE_PASSWORD}" "${APEX_REST_PUBLIC_USER_PASSWORD:-$ORACLE_PASSWORD}"
-
   -- Required for ORDS install
   alter user apex_public_user identified by "${APEX_PUBLIC_USER_PASSWORD:-$ORACLE_PASSWORD}" account unlock;
-
   -- Network ACL
   prompt Setup Network ACL
   begin
@@ -167,7 +153,6 @@ sqlplus / as sysdba << EOF
     commit;
   end;
   /
-
   -- Setup APEX Admin account
   prompt Setup APEX Admin account
   begin
@@ -182,7 +167,6 @@ sqlplus / as sysdba << EOF
     commit;
   end;
   /
-
   -- Create profile APPLICATION_AGENT
   create profile application_agent limit
     cpu_per_session unlimited
@@ -202,7 +186,6 @@ sqlplus / as sysdba << EOF
     failed_login_attempts 10
     password_lock_time 1
   ;
-
   -- Assign relevant users so that their passwords do not expire
   alter user apex_public_user profile application_agent;
   alter user apex_rest_public_user profile application_agent;
@@ -217,18 +200,13 @@ runuser -l oracle -c $APEX_INSTALL > /tmp/apexInstall.log 2>&1
 echo "Create ORDS install script"
 cat > ${ORDS_INSTALL} <<EOF0
 #!/bin/bash
-
 ORDS_ZIP=$ORDS_ZIP
 ORAENV_ASK=$ORAENV_ASK
 ORACLE_SID=$ORACLE_SID
 ORDS_CONFIG_DIR=${ORDS_HOME}/conf
-
 . oraenv 
-
 unzip ${DOWNLOADS_DIR}/${ORDS_ZIP} -d ${ORDS_HOME}
-
 cd ${ORDS_HOME}
-
 cat << EOF > ${ORDS_HOME}/params/custom_params.properties
 db.hostname=localhost
 db.password=${APEX_PUBLIC_USER_PASSWORD:-$ORACLE_PASSWORD}
@@ -249,11 +227,8 @@ user.tablespace.temp=TEMP
 sys.user=sys
 sys.password=${ORACLE_PASSWORD}
 EOF
-
 java -jar ords.war configdir \${ORDS_CONFIG_DIR}
-
 java -jar ords.war install simple --parameterFile ${ORDS_HOME}/params/custom_params.properties
-
 sqlplus / as sysdba << EOF
   alter session set container = ${ORACLE_PDB_NAME:-XEPDB1};
   alter user ords_public_user profile application_agent;
@@ -267,7 +242,6 @@ runuser -l oracle -c $ORDS_INSTALL  > /tmp/ordsInstall.log 2>&1
 echo "Configure Apache2"
 cat > /etc/httpd/conf.d/apex_images.conf <<EOF
 Alias /i "${APEX_HOME}/images/"
-
 <Directory "${APEX_HOME}/images/">
     Options None
     AllowOverride None
@@ -279,15 +253,12 @@ if [ ${SSL_ENABLED^^} == 'Y' ]; then
   cat > /etc/httpd/conf.d/apex_proxies.conf <<EOF
 <VirtualHost *:80>
   ServerName ${SERVER_NAME}
-
   RewriteEngine On
   RewriteCond %{HTTPS} off
   RewriteRule (.*) https://%{SERVER_NAME}/\$1 [R,L]
 </VirtualHost>
-
 <VirtualHost *:443>
   ServerName ${SERVER_NAME}
-
   SSLEngine on
   SSLProtocol all -SSLv2 -SSLv3
   SSLCipherSuite HIGH:3DES:!aNULL:!MD5:!SEED:!IDEA
@@ -295,21 +266,17 @@ if [ ${SSL_ENABLED^^} == 'Y' ]; then
   SSLProxyCheckPeerCN off
   SSLProxyCheckPeerExpire off
   SSLProxyCheckPeerName off
-
   ErrorLog logs/ssl_error_log
   TransferLog logs/ssl_access_log
   LogLevel warn
   CustomLog logs/ssl_request_log \
           "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \"%r\" %b"
-
   ProxyPreserveHost on
   ProxyAddHeaders on
   ProxyPass /ords https://localhost:8443/ords
   ProxyPassReverse /ords https://localhost:8443/ords
-
   RewriteEngine On
   RewriteRule "^/\$" "/ords" [R]
-
   SSLCertificateFile /etc/pki/tls/certs/localhost.crt
   SSLCertificateKeyFile /etc/pki/tls/private/localhost.key
   #SSLCertificateChainFile /etc/pki/tls/certs/server-chain.crt
@@ -319,12 +286,10 @@ else
   cat > /etc/httpd/conf.d/apex_proxies.conf <<EOF
 <VirtualHost *:80>
   ServerName ${SERVER_NAME}
-
   ProxyPreserveHost on
   ProxyAddHeaders on
   ProxyPass /ords http://localhost:8080/ords
   ProxyPassReverse /ords http://localhost:8080/ords
-
   RewriteEngine On
   RewriteRule "^/\$" "/ords" [R]
 </VirtualHost>

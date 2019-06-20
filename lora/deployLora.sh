@@ -54,7 +54,7 @@ esac;
 
 case ORDS_VERSION in
 *)
-  ORDS_ZIP=ords-18.4.0.354.1002.zip
+  ORDS_ZIP=ords-18.3.0.270.1456.zip
   ;;
 esac;
 
@@ -67,7 +67,7 @@ yum install -y \
     java-1.8.0-openjdk-devel \
     tomcat \
     firewalld \
-    certbot
+    certbot \
 
 echo "Download required files"
 if [ ! -d "$DOWNLOADS_DIR" ]; then
